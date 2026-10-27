@@ -30,8 +30,10 @@ SECRET_KEY = os.environ.get(
 DEBUG = os.environ.get("DEBUG", "True") == "True"
 
 ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-if os.environ.get("RAILWAY_PUBLIC_DOMAIN"):
-    ALLOWED_HOSTS.append(os.environ["RAILWAY_PUBLIC_DOMAIN"])
+# Alamat publik otomatis dari Render / Railway
+DOMAIN_PUBLIK = os.environ.get("RENDER_EXTERNAL_HOSTNAME") or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+if DOMAIN_PUBLIK:
+    ALLOWED_HOSTS.append(DOMAIN_PUBLIK)
 
 
 # Application definition
@@ -99,7 +101,7 @@ if os.environ.get("DB_ENGINE") == "sqlite":
         }
     }
 elif os.environ.get("DATABASE_URL"):
-    # Dipakai di Railway (DATABASE_URL diisi otomatis dari layanan PostgreSQL).
+    # Dipakai saat online (Neon / Railway): alamat database lengkap dalam satu variabel.
     import dj_database_url
 
     DATABASES = {"default": dj_database_url.parse(os.environ["DATABASE_URL"], conn_max_age=600)}
@@ -187,8 +189,8 @@ CORS_ALLOWED_ORIGINS = ["http://localhost:3000", "http://127.0.0.1:3000"]
 if os.environ.get("FRONTEND_URL"):
     CORS_ALLOWED_ORIGINS += [u.strip().rstrip("/") for u in os.environ["FRONTEND_URL"].split(",")]
 CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
-if os.environ.get("RAILWAY_PUBLIC_DOMAIN"):
-    CSRF_TRUSTED_ORIGINS.append("https://" + os.environ["RAILWAY_PUBLIC_DOMAIN"])
+if DOMAIN_PUBLIK:
+    CSRF_TRUSTED_ORIGINS.append("https://" + DOMAIN_PUBLIK)
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
