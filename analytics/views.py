@@ -45,6 +45,15 @@ def _bentuk_klaster():
     ]
 
 
+def _parameter_terakhir():
+    """Parameter FP-Growth yang dipakai aturan tersimpan (None bila belum ada aturan)."""
+    a = AssociationRule.objects.order_by("-created_at").first()
+    if a is None:
+        return None
+    return {"min_support": a.min_support, "min_confidence": a.min_confidence, "period_type": a.period_type,
+            "start": a.period_start, "end": a.period_end}
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def dashboard(request):
@@ -80,10 +89,23 @@ def dashboard(request):
 def jalankan_segmentasi(request):
     if not Customer.objects.exists():
         return Response({"detail": "Belum ada data transaksi."}, status=status.HTTP_400_BAD_REQUEST)
+    parameter = _parameter_terakhir()
     hasil_rfm, acuan = rfm.hitung_rfm()
     rfm.simpan_rfm(hasil_rfm)
     hasil = fcm.jalankan_segmentasi()
     _cache_sensitivitas.clear()
+    # Klaster baru menghapus aturan lama (cascade); bentuk ulang aturan dengan parameter terakhir
+    # agar halaman Rekomendasi langsung punya bukti pola pembelian.
+    try:
+        if parameter and parameter["period_type"] == "custom":
+            fpgrowth.jalankan_fpgrowth(parameter["min_support"], parameter["min_confidence"], "custom",
+                                       parameter["start"], parameter["end"])
+        elif parameter:
+            fpgrowth.jalankan_fpgrowth(parameter["min_support"], parameter["min_confidence"], parameter["period_type"])
+        else:
+            fpgrowth.jalankan_fpgrowth()
+    except ValueError:
+        fpgrowth.jalankan_fpgrowth()
     return Response({"detail": "Segmentasi selesai.", "tanggal_acuan": acuan.date(),
                      "k_optimal": hasil["k_optimal"], "silhouette": hasil["silhouette"]})
 
@@ -143,6 +165,7 @@ def sensitivitas(request):
     return Response({
         "min_support_default": DEFAULT_MIN_SUPPORT,
         "min_confidence_default": DEFAULT_MIN_CONFIDENCE,
+        "terakhir": _parameter_terakhir(),
         "tabel": [],
     })
 
@@ -153,16 +176,30 @@ def analisis_pola(request):
     d = request.data
     if not Cluster.objects.exists():
         return Response({"detail": "Segmentasi belum dijalankan."}, status=status.HTTP_400_BAD_REQUEST)
+    galat = lambda pesan: Response({"detail": pesan}, status=status.HTTP_400_BAD_REQUEST)
     try:
         min_support = float(d.get("min_support", DEFAULT_MIN_SUPPORT))
         min_confidence = float(d.get("min_confidence", DEFAULT_MIN_CONFIDENCE))
-        if not (0 < min_support <= 1 and 0 < min_confidence <= 1):
-            raise ValueError("Minimum support dan confidence harus di antara 0 dan 1.")
+    except (TypeError, ValueError):
+        return galat("Minimum support dan minimum confidence harus berupa angka.")
+    if not (0 < min_support <= 1 and 0 < min_confidence <= 1):
+        return galat("Minimum support dan minimum confidence harus lebih dari 0% dan paling besar 100%.")
+    try:
         mulai = date.fromisoformat(d["start"]) if d.get("start") else None
         selesai = date.fromisoformat(d["end"]) if d.get("end") else None
-        h = fpgrowth.jalankan_fpgrowth(min_support, min_confidence, d.get("period_type", "seluruh"), mulai, selesai)
-    except (ValueError, TypeError) as e:
-        return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except (TypeError, ValueError):
+        return galat("Format tanggal periode tidak valid.")
+    # simpan=False: hanya menampilkan hasil tanpa menimpa aturan tersimpan (dipakai saat halaman dibuka)
+    simpan = d.get("simpan", True) is not False
+    try:
+        h = fpgrowth.jalankan_fpgrowth(min_support, min_confidence, d.get("period_type", "seluruh"), mulai, selesai,
+                                       simpan=simpan)
+    except ValueError as e:
+        return galat(str(e))
+    # Aturan tersimpan berubah -> narasi rekomendasi disusun ulang agar alasan & bukti tetap sejalan
+    rekomendasi_diperbarui = simpan and Recommendation.objects.exists()
+    if rekomendasi_diperbarui:
+        rekomendasi.susun_rekomendasi()
 
     segmen = d.get("segment")  # label klaster atau kosong = semua
     hasil = []
@@ -176,7 +213,8 @@ def analisis_pola(request):
                         "support": r.support, "confidence": r.confidence, "lift": r.lift}
                        for r in aturan.itertuples()]})
     return Response({"periode": {"mulai": h["periode"][0], "selesai": h["periode"][1]},
-                     "min_support": min_support, "min_confidence": min_confidence, "hasil": hasil})
+                     "min_support": min_support, "min_confidence": min_confidence,
+                     "tersimpan": simpan, "rekomendasi_diperbarui": rekomendasi_diperbarui, "hasil": hasil})
 
 
 def _data_rekomendasi():

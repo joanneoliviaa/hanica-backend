@@ -16,3 +16,7 @@ hasil_verifikasi_*
 heatmap_*.png
 laporan.pdf
 _tes*
+
+# sisa pengujian / file sementara
+_to_delete/
+*.tgz

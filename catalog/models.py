@@ -46,7 +46,7 @@ class TransactionDetail(models.Model):
     product = models.ForeignKey(
         Product, on_delete=models.PROTECT, related_name="transaction_details"
     )
-    # FloatField (bukan Integer): 15 baris data asli punya Qty pecahan, mis. 116,5 / 446,01 KG
+    # FloatField: 15 baris data asli punya Qty pecahan, mis. 116,5 / 446,01 KG
     quantity = models.FloatField()
     unit = models.CharField(max_length=10, null=True, blank=True)
     price = models.FloatField()
@@ -54,7 +54,6 @@ class TransactionDetail(models.Model):
 
     def __str__(self):
         return f"{self.transaction_id} - {self.product_id}"
-
 
 class UploadHistory(models.Model):
     """Tabel 3.8 — riwayat unggahan data transaksi."""

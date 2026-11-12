@@ -37,6 +37,35 @@ def parse_tanggal(nilai):
     return pd.to_datetime(nilai, errors="coerce")
 
 
+ROMAWI = {"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10, "XI": 11, "XII": 12}
+BATAS_SELISIH_HARI = 180  # toleransi tanggal faktur terhadap bulan/tahun pada nomor faktur
+
+
+def bulan_dari_nomor_faktur(no_faktur):
+    """'039/HSM/CUP/XI/23' atau '2025/HSM/VIII/035' -> Timestamp tanggal 1 bulan tsb; None bila tidak berpola."""
+    bagian = [b.strip() for b in str(no_faktur).split("/")]
+    tahun = next((int(b) for b in bagian if len(b) == 4 and b.isdigit() and b.startswith("20")), None)
+    if tahun is None and len(bagian[-1]) == 2 and bagian[-1].isdigit():
+        tahun = 2000 + int(bagian[-1])
+    bulan = next((ROMAWI[b] for b in bagian if b in ROMAWI), None)
+    return pd.Timestamp(tahun, bulan, 1) if tahun and bulan else None
+
+
+def cek_tanggal_faktur(df):
+    """Tolak tanggal yang jauh dari bulan/tahun yang tertulis di nomor faktur (indikasi salah ketik)."""
+    faktur = df.drop_duplicates("No Faktur")[["No Faktur", "tanggal"]]
+    janggal = []
+    for no, tgl in zip(faktur["No Faktur"], faktur["tanggal"]):
+        acuan = bulan_dari_nomor_faktur(no)
+        if acuan is not None and abs((tgl - acuan).days) > BATAS_SELISIH_HARI:
+            janggal.append(f"{no} ({tgl.strftime('%d-%m-%Y')})")
+    if janggal:
+        contoh = ", ".join(janggal[:5]) + (f", dan {len(janggal) - 5} lainnya" if len(janggal) > 5 else "")
+        raise PreprocessingError(
+            f"Ada {len(janggal)} faktur yang tanggalnya tidak sesuai dengan bulan/tahun pada nomor fakturnya "
+            f"(kemungkinan salah ketik): {contoh}. Perbaiki tanggal tersebut di berkas Excel lalu unggah ulang.")
+
+
 # ---------- nama barang ----------
 def rapikan_nama_barang(teks):
     s = str(teks).strip().upper()
@@ -139,6 +168,7 @@ def praproses(df_mentah):
     df["tanggal"] = df["Tanggal Faktur"].map(parse_tanggal)
     if df["tanggal"].isna().any():
         raise PreprocessingError("Ada tanggal faktur yang tidak bisa dibaca.")
+    cek_tanggal_faktur(df)
 
     # 5. nama barang
     df["produk"] = df["Nama Barang"].map(rapikan_nama_barang)

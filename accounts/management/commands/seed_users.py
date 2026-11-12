@@ -8,7 +8,7 @@ from accounts.models import User
 class Command(BaseCommand):
     help = (
         "Seed akun pengguna awal (sistem tidak menyediakan fitur registrasi). "
-        "Contoh: python manage.py seed_users --username admin --password 'RahasiaKuat123'"
+        "Contoh: python manage.py seed_users --username admin --password 'Secret123'"
     )
 
     def add_arguments(self, parser):
@@ -31,7 +31,7 @@ class Command(BaseCommand):
         user, created = User.objects.get_or_create(
             username=username, defaults={"email": opts["email"]}
         )
-        user.set_password(password)  # password di-hash otomatis oleh Django
+        user.set_password(password)  
         if opts["superuser"]:
             user.is_staff = True
             user.is_superuser = True
